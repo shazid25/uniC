@@ -7,7 +7,7 @@
 int main()
 {
     int arr[100], n, i, key;
-    int found = 0; // To track if any match is found
+    int found = 0; 
 
     printf("Enter number of elements: ");
     scanf("%d", &n);
@@ -26,8 +26,8 @@ int main()
     {
         if (arr[i] == key)
         {
-            printf("%d ", i + 1); // Print all positions where found
-            found = 1; // Mark as found
+            printf("%d ", i + 1); 
+            found = 1;
         }
     }
 

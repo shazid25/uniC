@@ -18,10 +18,8 @@ int main()
         scanf("%d", &arr[i]);
     }
 
-    // Initialize smallest and largest with the first element
     smallest = largest = arr[0];
 
-    // Linear search to find smallest and largest
     for (i = 1; i < n; i++)
     {
         if (arr[i] < smallest)

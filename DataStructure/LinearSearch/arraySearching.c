@@ -47,7 +47,8 @@ int main()
 
             printf("Element found at position %d\n", i + 1);
 
-            return 0; // Stop searching if found
+            return 0; 
+            
         }
     }
 

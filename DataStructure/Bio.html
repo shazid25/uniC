@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Channel QR Code</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #111;
+      color: #fff;
+      font-family: Arial, sans-serif;
+    }
+    #qrcode {
+      background: #fff;
+      padding: 15px;
+      border-radius: 10px;
+      box-shadow: 0 0 15px rgba(255, 0, 0, 0.4);
+    }
+    h2 {
+      margin-bottom: 20px;
+      color: #ff0000;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Scan to Visit My YouTube Channel</h2>
+  <div id="qrcode"></div>
+
+  <script>
+    const channelURL = "https://www.youtube.com/@biogram-jmc";
+
+    new QRCode(document.getElementById("qrcode"), {
+      text: channelURL,
+      width: 250,   // QR size
+      height: 250,
+      colorDark: "#000000",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.H
+    });
+  </script>
+
+</body>
+</html>

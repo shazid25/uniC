@@ -57,35 +57,24 @@ int main()
 
     while (left <= right)
     {
-
         mid = (left + right) / 2; // Find the middle index
-
         if (arr[mid] == key)
         {
-
             printf("Element %d is found at index %d\n",
                    arr[mid], mid);
-
             // Step 6: Element found
-
             return 0;
         }
-
         else if (arr[mid] < key)
         {
-
             left = mid + 1; // Search in the right half
         }
-
         else
         {
-
             right = mid - 1; // Search in the left half
         }
     }
-
     // Step 7: If not found, print message
-
     printf("Element is not found\n");
 
     return 0;
