@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Carrom — 2 Player (Touch + Mouse)</title>
+  <style>
+    html,body{height:100%;margin:0;font-family:Segoe UI,Roboto,Arial}
+    .wrap{display:flex;flex-direction:column;height:100%;align-items:center;gap:8px;padding:12px;background:#0b2b1a}
+    canvas{background:#f2e6c9;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,0.4)}
+    .hud{display:flex;gap:12px;align-items:center;color:white}
+    .panel{background:rgba(255,255,255,0.06);padding:8px 12px;border-radius:8px}
+    button{padding:8px 10px;border-radius:8px;border:none;background:#2b8b57;color:white;font-weight:600}
+    .hint{color:#d6f6e6;font-size:13px}
+    @media (max-width:700px){canvas{width:94vw;height:94vw}}</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hud">
+      <div class="panel">Player 1 (Top): <span id="score1">0</span></div>
+      <div class="panel">Player 2 (Bottom): <span id="score2">0</span></div>
+      <div class="panel">Turn: <strong id="turnText">Player 1</strong></div>
+      <button id="resetBtn">Reset Game</button>
+    </div>
+    <canvas id="board" width="720" height="720"></canvas>
+    <div class="hint">Controls: Tap/drag on the striker to aim and set power — release to shoot. Works with touch or mouse.<br>After each shot wait for motion to stop. You can reposition the striker along your baseline before shooting by dragging it slightly.</div>
+  </div>
+
+<script>
+(()=>{
+  // ----- Config -----
+  const canvas = document.getElementById('board');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width; const H = canvas.height;
+  const pocketRadius = 28;
+  const coinRadius = 14;
+  const strikerRadius = 18;
+  const friction = 0.995; // velocity multiplier per frame
+  const delta = 1/60;
+  const restitution = 0.98; // collisions energy retention
+
+  // Game state
+  const state = {
+    coins: [], // {x,y,vx,vy,r,type,alive}
+    striker: null,
+    currentPlayer: 1, // 1 top, 2 bottom
+    moving: false,
+    scores: {1:0,2:0},
+    aiming: false,
+    aimStart: null,
+    allowShot: true
+  };
+
+  // pockets at corners
+  const pockets = [
+    {x:40,y:40}, {x:W-40,y:40}, {x:40,y:H-40}, {x:W-40,y:H-40}
+  ];
+
+  // Helper functions
+  function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+  function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+
+  // Initialize coins and striker
+  function setupBoard(){
+    state.coins = [];
+    // Place 8 light and 8 dark coins roughly in the center circle
+    const center = {x:W/2,y:H/2};
+    const pattern = [];
+    const layers = [0,1,2,3];
+    for(let L=1;L<=3;L++){
+      const count = L===1?1: L===2?6:12; // rough distribution
+    }
+    // We'll programmatically place 9 coins in a compact formation (simple)
+    const positions = [
+      {x: center.x, y:center.y},
+      {x: center.x-2*coinRadius, y:center.y}, {x:center.x+2*coinRadius,y:center.y},
+      {x:center.x-coinRadius,y:center.y-1.7*coinRadius},{x:center.x+coinRadius,y:center.y-1.7*coinRadius},
+      {x:center.x-coinRadius,y:center.y+1.7*coinRadius},{x:center.x+coinRadius,y:center.y+1.7*coinRadius},
+      {x:center.x-3*coinRadius,y:center.y-0.9*coinRadius},{x:center.x+3*coinRadius,y:center.y+0.9*coinRadius}
+    ];
+    // mark one as red queen
+    positions.forEach((p,i)=>{
+      state.coins.push({x:p.x,y:p.y,vx:0,vy:0,r:coinRadius,type: i===0? 'red' : (i%2? 'dark':'light'),alive:true});
+    });
+
+    // striker starting position depends on player
+    resetStriker();
+    state.scores = {1:0,2:0};
+    state.currentPlayer = 1;
+    state.allowShot = true;
+    updateHUD();
+  }
+
+  function resetStriker(){
+    const x = W/2;
+    const y = state.currentPlayer===1? H*0.18 : H*0.82;
+    state.striker = {x,y,vx:0,vy:0,r:strikerRadius,alive:true};
+  }
+
+  function updateHUD(){
+    document.getElementById('score1').textContent = state.scores[1];
+    document.getElementById('score2').textContent = state.scores[2];
+    document.getElementById('turnText').textContent = state.currentPlayer===1? 'Player 1' : 'Player 2';
+  }
+
+  // Physics loop
+  function step(){
+    // move coins + striker
+    let anyMoving = false;
+    const allBodies = [...state.coins.filter(c=>c.alive), state.striker];
+
+    // integrate
+    allBodies.forEach(b=>{
+      b.x += b.vx;
+      b.y += b.vy;
+      // friction
+      b.vx *= friction; b.vy *= friction;
+      if(Math.hypot(b.vx,b.vy) > 0.01) anyMoving = true;
+    });
+
+    // collisions wall
+    allBodies.forEach(b=>{
+      // walls (keep within inner rectangle leaving margin for padding)
+      const pad = 10;
+      if(b.x - b.r < pad){ b.x = pad + b.r; b.vx = -b.vx * restitution; }
+      if(b.x + b.r > W - pad){ b.x = W - pad - b.r; b.vx = -b.vx * restitution; }
+      if(b.y - b.r < pad){ b.y = pad + b.r; b.vy = -b.vy * restitution; }
+      if(b.y + b.r > H - pad){ b.y = H - pad - b.r; b.vy = -b.vy * restitution; }
+    });
+
+    // collisions between coins and striker
+    for(let i=0;i<allBodies.length;i++){
+      for(let j=i+1;j<allBodies.length;j++){
+        const A = allBodies[i], B = allBodies[j];
+        const dx = B.x - A.x, dy = B.y - A.y;
+        const d = Math.hypot(dx,dy);
+        const minD = A.r + B.r;
+        if(d>0 && d < minD){
+          // resolve overlap
+          const overlap = minD - d;
+          const nx = dx/d, ny = dy/d;
+          A.x -= nx*(overlap/2);
+          A.y -= ny*(overlap/2);
+          B.x += nx*(overlap/2);
+          B.y += ny*(overlap/2);
+          // relative velocity
+          const rvx = B.vx - A.vx, rvy = B.vy - A.vy;
+          const velAlong = rvx*nx + rvy*ny;
+          if(velAlong > 0) continue; // separating
+          // simple impulse
+          const impulse = -(1+restitution) * velAlong / 2; // equal mass
+          const ix = impulse * nx, iy = impulse * ny;
+          A.vx -= ix; A.vy -= iy;
+          B.vx += ix; B.vy += iy;
+        }
+      }
+    }
+
+    // check pockets
+    state.coins.forEach(c=>{
+      if(!c.alive) return;
+      for(const p of pockets){
+        const dx = c.x - p.x, dy = c.y - p.y;
+        if(Math.hypot(dx,dy) < pocketRadius){
+          c.alive = false;
+          // award point to current player
+          state.scores[state.currentPlayer] += (c.type==='red'?3:1);
+        }
+      }
+    });
+    // striker pocketed -> foul
+    for(const p of pockets){
+      const dx = state.striker.x - p.x, dy = state.striker.y - p.y;
+      if(Math.hypot(dx,dy) < pocketRadius){
+        // foul: penalize player by 1 point if they have points
+        if(state.scores[state.currentPlayer] > 0) state.scores[state.currentPlayer] = Math.max(0, state.scores[state.currentPlayer]-1);
+        // remove striker from board momentarily: move to baseline next turn
+        state.striker.vx = 0; state.striker.vy = 0;
+        resetStriker();
+        state.allowShot = true;
+        // change turn
+        swapTurn();
+        anyMoving = false;
+        break;
+      }
+    }
+
+    // If no object is moving -> turn ends (if a shot was taken and coins pocketed maybe continue same player? For simplicity alternate turns each shot unless a coin was pocketed)
+    if(!anyMoving && state.moving){
+      // determine if pocket happened in this turn
+      const pocketed = state.coins.some(c=>c.justPocketed);
+      // clear flags
+      state.coins.forEach(c=>delete c.justPocketed);
+      state.moving = false;
+      state.allowShot = true;
+      // if pocket happened, same player continues; otherwise swap turn
+      // We'll detect pocketing by seeing coins that were removed since last draw by comparing alive counts
+      // For simplicity: if any coin was removed this shot, allow same player; else swap
+      // We'll compare using a counter
+      if(state._pocketCountBefore !== undefined){
+        const before = state._pocketCountBefore;
+        const now = state.coins.filter(c=>!c.alive).length;
+        if(now === before){
+          swapTurn();
+          resetStriker();
+        } else {
+          // pocket happened - don't swap, striker reposition for same player's next shot
+          resetStriker();
+        }
+      } else {
+        swapTurn(); resetStriker();
+      }
+      updateHUD();
+    }
+
+    // set moving flag
+    state.moving = anyMoving;
+
+    draw();
+    requestAnimationFrame(step);
+  }
+
+  function swapTurn(){ state.currentPlayer = state.currentPlayer===1?2:1; updateHUD(); }
+
+  // Drawing
+  function drawBoardFrame(){
+    // outer border
+    ctx.fillStyle = '#f2e6c9';
+    ctx.fillRect(0,0,W,H);
+    // inner playing square
+    const pad = 40;
+    ctx.strokeStyle = '#6b4f2a'; ctx.lineWidth = 6;
+    roundRect(ctx,pad,pad,W-2*pad,H-2*pad,18);
+    ctx.stroke();
+
+    // corners pockets
+    pockets.forEach(p=>{
+      ctx.beginPath(); ctx.fillStyle='#333'; ctx.arc(p.x,p.y,pocketRadius,0,Math.PI*2); ctx.fill();
+    });
+
+    // baseline indicators
+    ctx.fillStyle='rgba(0,0,0,0.12)';
+    ctx.fillRect(W/2-60, pad-10, 120, 8);
+    ctx.fillRect(W/2-60, H-pad+2, 120, 8);
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    drawBoardFrame();
+
+    // draw coins
+    state.coins.forEach(c=>{
+      if(!c.alive) return;
+      ctx.beginPath(); ctx.arc(c.x,c.y,c.r,0,Math.PI*2);
+      if(c.type==='red'){ ctx.fillStyle='#b71c1c'; ctx.fill(); ctx.strokeStyle='#3b0d0d'; ctx.lineWidth=2; ctx.stroke(); }
+      else if(c.type==='dark'){ ctx.fillStyle='#1b1b1b'; ctx.fill(); ctx.strokeStyle='#111'; ctx.lineWidth=1; ctx.stroke(); }
+      else { ctx.fillStyle='#f7ead6'; ctx.fill(); ctx.strokeStyle='#c99f7d'; ctx.lineWidth=1; ctx.stroke(); }
+    });
+
+    // draw striker
+    const s = state.striker;
+    ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.fillStyle='#2e7d32'; ctx.fill(); ctx.strokeStyle='#0b3d1a'; ctx.lineWidth=2; ctx.stroke();
+
+    // draw aiming line if active
+    if(state.aiming && state.aimStart){
+      ctx.beginPath(); ctx.moveTo(state.aimStart.x,state.aimStart.y); ctx.lineTo(pointer.x,pointer.y);
+      ctx.strokeStyle='rgba(0,0,0,0.6)'; ctx.lineWidth=3; ctx.setLineDash([8,6]); ctx.stroke(); ctx.setLineDash([]);
+      // power indicator
+      const dx = pointer.x - state.aimStart.x, dy = pointer.y - state.aimStart.y;
+      const power = clamp(Math.hypot(dx,dy)/4,0,150);
+      ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.font='14px sans-serif'; ctx.fillText('Power: '+Math.round(power), state.aimStart.x+10, state.aimStart.y-10);
+    }
+  }
+
+  function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+  // Input handling - unify pointer events
+  let pointer = {x:0,y:0,down:false};
+  canvas.style.touchAction = 'none';
+
+  canvas.addEventListener('pointerdown', (e)=>{
+    const rect = canvas.getBoundingClientRect();
+    pointer.x = e.clientX - rect.left; pointer.y = e.clientY - rect.top; pointer.down = true;
+    // if pointer is near striker -> start aiming
+    const s = state.striker;
+    const d = Math.hypot(pointer.x-s.x,pointer.y-s.y);
+    // also allow drag along baseline before aiming (small move)
+    if(d < s.r + 10 && state.allowShot && !state.moving){
+      state.aiming = true;
+      state.aimStart = {x:s.x,y:s.y};
+      // store pocket count before shot to detect if pocket happened
+      state._pocketCountBefore = state.coins.filter(c=>!c.alive).length;
+    }
+  });
+
+  canvas.addEventListener('pointermove', (e)=>{
+    const rect = canvas.getBoundingClientRect();
+    pointer.x = e.clientX - rect.left; pointer.y = e.clientY - rect.top;
+    if(!pointer.down) return;
+    if(state.aiming){
+      // allow slight repositioning along player's baseline before long drag: if drag is very small, move striker along x within allowed baseline
+      const dx = pointer.x - state.aimStart.x, dy = pointer.y - state.aimStart.y;
+      const distDrag = Math.hypot(dx,dy);
+      // if user drags mostly vertically and hasn't pulled far, treat as aiming; otherwise if very small move within baseline, reposition striker
+      // We'll let user reposition if drag distance < 12 px and pointer is near baseline zone
+      if(distDrag < 12){
+        // reposition along baseline horizontally only within inner play area
+        const pad = 80;
+        const minX = pad + state.striker.r; const maxX = W - pad - state.striker.r;
+        // baseline Y depending on player
+        const baselineY = state.currentPlayer===1? H*0.18 : H*0.82;
+        state.striker.x = clamp(pointer.x, minX, maxX);
+        state.striker.y = baselineY;
+      } else {
+        // just show aim line (no changes to striker)
+      }
+    }
+  });
+
+  canvas.addEventListener('pointerup', (e)=>{
+    pointer.down = false;
+    if(state.aiming){
+      // compute shot vector from aimStart to release point
+      const rect = canvas.getBoundingClientRect();
+      const upx = e.clientX - rect.left, upy = e.clientY - rect.top;
+      const vx = state.aimStart.x - upx; // direction: from release point back to aimStart (pull-to-shoot)
+      const vy = state.aimStart.y - upy;
+      const power = clamp(Math.hypot(vx,vy)/6, 0, 18); // scale
+      if(power > 0.6 && state.allowShot && !state.moving){
+        // apply velocity to striker
+        state.striker.vx = vx/Math.hypot(vx,vy) * power;
+        state.striker.vy = vy/Math.hypot(vx,vy) * power;
+        state.moving = true; state.allowShot = false;
+      }
+      state.aiming = false; state.aimStart = null;
+    }
+  });
+
+  // prevent leaving pointerdown state if pointer leaves canvas
+  canvas.addEventListener('pointercancel', ()=>{ pointer.down=false; state.aiming=false; state.aimStart=null; });
+
+  // Buttons
+  document.getElementById('resetBtn').addEventListener('click', ()=>{ setupBoard(); });
+
+  // Start
+  setupBoard();
+  requestAnimationFrame(step);
+
+})();
+</script>
+</body>
+</html>
